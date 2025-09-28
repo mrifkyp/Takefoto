@@ -1,0 +1,9 @@
+{
+  "name": "hidden-camera-telegram",
+  "version": "1.0.0",
+  "description": "Website dengan kamera tersembunyi",
+  "type": "module",
+  "scripts": {
+    "dev": "python3 -m http.server 3000"
+  }
+}
